@@ -1,6 +1,20 @@
 {
   "domain": "coway_local",
   "name": "Coway Local",
+  "after_dependencies": [
+    "bluetooth"
+  ],
+  "bluetooth": [
+    {
+      "connectable": true,
+      "manufacturer_id": 1593
+    },
+    {
+      "connectable": true,
+      "manufacturer_id": 65535,
+      "service_uuid": "0000ffc0-0000-1000-8000-00805f9b34fb"
+    }
+  ],
   "codeowners": [
     "@scottjg"
   ],

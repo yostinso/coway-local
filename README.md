@@ -4,7 +4,10 @@ A Home Assistant custom integration for local control of Coway air purifiers, te
 
 Using this integration disconnects your fan from the Coway cloud. The fan is paired with Home Assistant directly: the integration runs its own MQTT broker, and the fan connects to that instead. The Coway mobile app no longer controls a fan set up this way.
 
-Setup is done from a web page that uses Web Bluetooth to give the fan your Wi-Fi details and the address of your Home Assistant instance. Chrome only allows Web Bluetooth on HTTPS pages, so the setup page is hosted on GitHub Pages instead of being served by Home Assistant.
+Setup gives the fan your Wi-Fi details and the address of your Home Assistant instance over Bluetooth, in one of two ways:
+
+- **Home Assistant Bluetooth:** Home Assistant talks to the fan itself, through a local Bluetooth adapter or an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy/). Fans in setup mode are discovered automatically.
+- **Browser setup page:** a web page that uses Web Bluetooth. Chrome only allows Web Bluetooth on HTTPS pages, so the setup page is hosted on GitHub Pages instead of being served by Home Assistant.
 
 This is experimental. It implements the protocol observed on one AP-1022K, and no other model or firmware has been tested. See [Compatibility](#compatibility).
 
@@ -19,7 +22,9 @@ This is experimental. It implements the protocol observed on one AP-1022K, and n
 
 - Home Assistant Core **2026.10.2** or newer.
 - A fixed LAN address for Home Assistant. Reserve it in your router: the address is written into the fan, and the fan must be set up again if it changes.
-- **Chrome on a Mac or Android device** within Bluetooth range of the fan, for the one-time setup. Safari and iPhone browsers do not work.
+- For the one-time setup, one of:
+  - Home Assistant’s [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) with an adapter on the host or ESPHome Bluetooth proxy in range of the fan. ESPHome proxies need `bluetooth_proxy: active: true`.
+  - **Chrome on a Mac or Android device** within Bluetooth range of the fan. Safari and iPhone browsers do not work.
 - A 2.4 GHz Wi-Fi network for the fan.
 
 ## Install
@@ -45,20 +50,37 @@ If the integration shows “setup retrying”, a port is probably in use. Choose
 
 ## Add a fan
 
-1. Open **Coway Local → Configure → Add or provision a fan**. The Bluetooth setup page opens in a new tab. If the browser blocks it, use the **Open website** button. Keep the Home Assistant dialog open.
+### With Home Assistant Bluetooth
+
+1. Put the fan in Wi-Fi setup mode by holding down its **Mode** button, or whichever button controls the fan speed.
+2. Home Assistant shows a **Discovered** Coway fan under **Settings → Devices & services**. Choose **Add**. Or open **Coway Local → Configure → Add a fan (Home Assistant Bluetooth)** and pick the fan.
+3. Home Assistant connects to the fan and asks it to scan for Wi-Fi. Choose a 2.4 GHz network and enter its password.
+4. Home Assistant sends the settings and waits for the fan to join Wi-Fi and connect. This can take about 2 minutes. Leave the dialog open until **Fan ready** appears.
+
+Any connectable scanner that can hear the fan is used, so an ESPHome proxy near the fan works even if Home Assistant itself is out of range. A proxy has a few connection slots; if setup fails to connect, check that other devices are not holding them all.
+
+In this mode the Wi-Fi password passes through Home Assistant on its way to the fan. It is held in memory for the setup only and is never stored.
+
+If you **Ignore** a discovered fan, Home Assistant stops offering it, but you can still add it from **Configure**.
+
+### With the browser setup page
+
+1. Open **Coway Local → Configure → Add a fan (web browser Bluetooth)**. The Bluetooth setup page opens in a new tab. If the browser blocks it, use the **Open website** button. Keep the Home Assistant dialog open.
 2. Put the fan in Wi-Fi setup mode by holding down its **Mode** button, or whichever button controls the fan speed.
 3. Follow the wizard: choose the fan, choose a Wi-Fi network and enter its password, review, and connect.
 4. The browser returns to Home Assistant when Bluetooth setup succeeds. Home Assistant then waits for the fan to connect, which can take another 2 minutes. Leave the dialog open until **Fan ready** appears.
 
 The setup link expires after 15 minutes. If it expires, or the fan leaves setup mode, start again from step 1.
 
-The Wi-Fi password is typed into the setup page and sent to the fan over Bluetooth. Home Assistant never receives or stores it.
+With the setup page, the Wi-Fi password is typed into the page and sent to the fan over Bluetooth. Home Assistant never receives or stores it.
 
 ## Troubleshooting
 
 | Problem | What to check |
 | --- | --- |
 | The fan does not appear in the Bluetooth picker | The fan is in setup mode and you are using Chrome on a Mac or Android device. |
+| The fan is not discovered by Home Assistant | The fan is in setup mode and a connectable adapter or ESPHome proxy (with `active: true`) is in range. Discovery uses the fan’s advertisements; see [how discovery works](BLE_DISCOVERY.md). |
+| Home Assistant cannot connect to the fan | Move a proxy closer, or free one of its connection slots. A fan that left setup mode stops accepting connections. |
 | Wi-Fi connection fails | The network is 2.4 GHz and the password is correct. Put the fan back in setup mode and try again. |
 | Setup stalls after Wi-Fi connects | The fan cannot reach Home Assistant. Check the configured address, the three ports, and any firewall or VLAN rules between them. |
 | The integration shows “setup retrying” | Usually a port conflict, or the credential storage is unreadable. |
@@ -146,6 +168,7 @@ python3.14 -m venv .venv
 .venv/bin/pip install -r requirements-test.txt
 .venv/bin/pytest -q
 .venv/bin/ruff check .
+.venv/bin/python scripts/gen_protocol.py --check
 node --test tests/web.test.mjs
 .venv/bin/python scripts/package.py
 ```
@@ -159,6 +182,8 @@ Things to know before changing code:
 - **aMQTT is pinned to 0.12.1** because the broker overrides its private hooks. Re-run the tests before changing the pin.
 - **The setup page deploys from `main`.** Any change under `web/` goes live through the GitHub Pages workflow, for every installed release on that link format. A change that older releases cannot handle needs a new `web/v2/` directory and a bump to `SETUP_FORMAT` in `const.py`; `web/v1/` stays published.
 - **The site root serves the 0.4.2 page**, which releases up to 0.4.2 open. The workflow builds it from the `v0.4.2` tag.
+- **The Bluetooth protocol exists twice:** `web/v1/protocol.mjs` for the browser and `custom_components/coway_local/ble_protocol.py` for Home Assistant. Their constants (UUIDs, field numbers, status codes) come from `protocol/ble.json`: edit that, then run `python scripts/gen_protocol.py`; CI fails if the generated files are stale. Both codecs are tested against the same cases in `tests/protocol-vectors.json` (regenerate with `python scripts/gen_vectors.py` only for an intentional protocol change, and review the diff) and `tests/protocol-fixture.json`.
+- **`ble_client.py` is imported only when Home Assistant Bluetooth is used**, so the integration still loads without the bluetooth integration. Its tests run against a simulated fan GATT server.
 
 ## License
 

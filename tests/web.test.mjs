@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {decodeSetup, readIdentity, requestFan, validateBundle, wifiConfig} from '../web/v1/bootstrap.mjs';
-import {p001, p002, utf8, hex, fragments, Reassembler, decodeProto, localSerial} from '../web/v1/protocol.mjs';
+import {p001, p002, utf8, hex, fragments, Reassembler, decodeProto, encodeProto, parseScan, localSerial, STATUS, FAILURE_CODES} from '../web/v1/protocol.mjs';
 
 const now = 1800000000000;
 const bundle = {
@@ -183,4 +183,60 @@ test('unsafe or oversized Bluetooth labels stop provisioning', () => {
   const network = {ssid: 'Example', bssid: 'aabbccddeeff', channel: 6, security: 4};
   for (const name of ['', ' ', 'x'.repeat(81), 'Bad\nname', 'Bad\u007fname'])
     assert.throws(() => wifiConfig(bundle, {mac: '001122334455', name}, network, 'testwifi', now));
+});
+
+// Shared vectors: tests/test_ble_protocol.py checks the Home Assistant codec against the same file.
+const vectors = JSON.parse(await readFile(new URL('protocol-vectors.json', import.meta.url)));
+const unhex = value => Uint8Array.from(Buffer.from(value, 'hex'));
+const protoFields = fields => Object.fromEntries(Object.entries(fields)
+  .map(([k, v]) => [k, typeof v === 'string' ? utf8.encode(v) : v]));
+test('shared vectors: protobuf encode, decode and rejection', () => {
+  for (const c of vectors.proto) {
+    assert.equal(hex(encodeProto(protoFields(c.fields))), c.hex);
+    const decoded = decodeProto(unhex(c.hex));
+    assert.deepEqual(Object.fromEntries(Object.entries(decoded)
+      .map(([k, v]) => [k, typeof v === 'number' ? v : hex(v)])), c.decoded);
+  }
+  for (const data of vectors.proto_invalid) assert.throws(() => decodeProto(unhex(data)), data);
+});
+test('shared vectors: fragmentation and reassembly', () => {
+  for (const c of vectors.fragments) {
+    const packets = fragments(unhex(c.message), c.value_size);
+    assert.deepEqual(packets.map(hex), c.packets);
+    const assembler = new Reassembler();
+    const results = packets.map(p => assembler.feed(p));
+    assert.ok(results.slice(0, -1).every(r => r === null));
+    assert.equal(hex(results.at(-1)), c.message);
+  }
+  for (const packets of vectors.reassembly_invalid) {
+    const assembler = new Reassembler();
+    assert.throws(() => packets.forEach(p => assembler.feed(unhex(p))), packets.join(','));
+  }
+});
+test('shared vectors: Wi-Fi scan results', () => {
+  assert.deepEqual(parseScan(unhex(vectors.scan.hex)), vectors.scan.networks);
+  for (const data of vectors.scan_invalid) assert.throws(() => parseScan(unhex(data)));
+});
+test('shared vectors: advertisement filters agree with the recorded browser result', async () => {
+  let filters;
+  await requestFan({requestDevice(options) { filters = options.filters; return Promise.resolve({}); }});
+  const matches = (company, payload) => filters.some(filter => filter.manufacturerData.every(rule =>
+    company === rule.companyIdentifier && payload.length >= rule.dataPrefix.length
+    && rule.dataPrefix.every((byte, i) => (payload[i] & rule.mask[i]) === (byte & rule.mask[i]))));
+  for (const ad of vectors.advertisements)
+    assert.equal(matches(ad.company, unhex(ad.payload)), ad.browser_filter, ad.note);
+});
+test('shared vectors: identity responses', () => {
+  for (const c of vectors.identity) {
+    const identity = readIdentity(c.advertised ?? undefined, protoFields(c.fields));
+    assert.deepEqual({name: identity.name, mac: identity.mac, module: identity.moduleName}, c.expect);
+  }
+  for (const fields of vectors.identity_invalid)
+    assert.throws(() => readIdentity('AP-1022K', protoFields(fields)));
+});
+test('shared vectors: status codes', () => {
+  for (const c of vectors.status) {
+    assert.equal(FAILURE_CODES.has(c.code), c.failure, String(c.code));
+    assert.equal(STATUS[c.code] ?? null, c.description, String(c.code));
+  }
 });

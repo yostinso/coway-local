@@ -21,14 +21,58 @@
             }
           }
         }
+      },
+      "bluetooth_confirm": {
+        "title": "Set up {name}",
+        "description": "Home Assistant found **{name}** in Wi-Fi setup mode. Continue to give it your Wi-Fi details over Bluetooth and connect it to Coway Local.\n\nThis replaces the fan’s Coway cloud connection. Tested with AP-1022K only."
+      },
+      "bluetooth_wifi": {
+        "title": "Wi-Fi for {name}",
+        "description": "Choose the 2.4 GHz network the fan should join. The list comes from the fan’s own scan. Home Assistant sends the password to the fan over Bluetooth and does not store it.\n\nTick **Scan again** and submit to refresh the list.",
+        "data": {
+          "network": "Wi-Fi network",
+          "password": "Wi-Fi password",
+          "rescan": "Scan again"
+        }
+      },
+      "verify": {
+        "title": "Finishing fan setup"
       }
     },
     "error": {
-      "invalid_server": "Enter a reachable IPv4 address, three different ports (1024–65535), and an HTTPS provisioning URL."
+      "invalid_server": "Enter a reachable IPv4 address, three different ports (1024–65535), and an HTTPS provisioning URL.",
+      "network_required": "Choose a Wi-Fi network.",
+      "invalid_password": "Enter the 8–63 character Wi-Fi password.",
+      "no_networks": "The fan found no 2.4 GHz networks. Check that your router is nearby, then scan again.",
+      "wifi_failed": "The fan could not join Wi-Fi: {error}. Check that the network is 2.4 GHz and the password is correct.",
+      "provision_failed": "Setup failed: {error}"
     },
     "abort": {
       "single_instance_allowed": "Only one Coway Local server is needed. Use Configure to add another fan.",
-      "already_configured": "Coway Local is already configured."
+      "already_configured": "Coway Local is already configured.",
+      "not_supported": "This Bluetooth device does not advertise like a Coway fan in setup mode.",
+      "hub_required": "Set up Coway Local first (Settings → Devices & services → Add integration → Coway Local), then add the fan again.",
+      "no_devices_found": "No Coway fan in Wi-Fi setup mode is visible to Home Assistant’s Bluetooth adapters or ESPHome proxies. Hold the fan’s **Mode** button to enter setup mode, wait a few seconds, then try again.",
+      "ble_not_found": "Home Assistant can no longer reach the fan over Bluetooth: {error} Make sure it is in setup mode and near a connectable adapter or an ESPHome proxy with `active: true`.",
+      "ble_not_coway": "This device is not a compatible Coway fan in setup mode: {error}",
+      "ble_connect_failed": "Bluetooth connection failed. {error}",
+      "ble_timeout": "{error} Put the fan back into setup mode and try again.",
+      "ble_disconnected": "{error}",
+      "ble_protocol": "The fan sent an unexpected Bluetooth response: {error}",
+      "wifi_failed": "The fan could not join Wi-Fi: {error}. Put it back into setup mode and try again.",
+      "provision_failed": "Setup failed: {error}. Put the fan back into setup mode and try again.",
+      "broker_unreachable": "{error}",
+      "cannot_start_pairing": "Could not start setup. Check that the local service is running, Home Assistant has a frontend URL, and there are fewer than eight active setup attempts.",
+      "pairing_expired": "Setup expired. Put the fan in setup mode and start again.",
+      "pairing_interrupted": "Setup was canceled or the local service stopped. Choose Add fan to start again.",
+      "fan_ready": "**Fan ready**\n\nYour fan is connected and ready to control in Home Assistant. You can close this dialog.",
+      "already_in_progress": "Setup for this fan is already in progress."
+    },
+    "flow_title": "{name}",
+    "progress": {
+      "bluetooth_connect": "Connecting to **{name}** over Bluetooth and asking it to scan for Wi-Fi networks. This uses any nearby Bluetooth adapter or ESPHome Bluetooth proxy, and can take up to a minute.\n\nKeep the fan in Wi-Fi setup mode.",
+      "bluetooth_provision": "Sending Wi-Fi settings for **{network}** to {name}. The fan joins Wi-Fi, downloads its credentials from Home Assistant, and connects to the local broker.\n\nThis can take up to **2 minutes**. Keep the fan in Wi-Fi setup mode and leave this dialog open.",
+      "verify_connection": "Your Wi-Fi settings have been sent. Home Assistant is waiting for the fan to connect and confirm its initial settings.\n\nThis can take another **2 minutes**. Keep the fan powered on and leave this dialog open. Setup will finish automatically."
     }
   },
   "options": {
@@ -36,7 +80,8 @@
       "init": {
         "title": "Coway Local",
         "menu_options": {
-          "add_fan": "Add or provision a fan",
+          "add_fan_bluetooth": "Add a fan (Home Assistant Bluetooth)",
+          "add_fan": "Add a fan (web browser Bluetooth)",
           "server": "Server settings"
         }
       },
@@ -66,19 +111,54 @@
       },
       "verify": {
         "title": "Finishing fan setup"
+      },
+      "add_fan_bluetooth": {
+        "title": "Choose a fan",
+        "description": "These fans are in Wi-Fi setup mode and visible to a Bluetooth adapter or ESPHome Bluetooth proxy.",
+        "data": {
+          "address": "Fan"
+        }
+      },
+      "bluetooth_wifi": {
+        "title": "Wi-Fi for {name}",
+        "description": "Choose the 2.4 GHz network the fan should join. The list comes from the fan’s own scan. Home Assistant sends the password to the fan over Bluetooth and does not store it.\n\nTick **Scan again** and submit to refresh the list.",
+        "data": {
+          "network": "Wi-Fi network",
+          "password": "Wi-Fi password",
+          "rescan": "Scan again"
+        }
       }
     },
     "error": {
-      "invalid_server": "Enter a reachable IPv4 address, three different ports (1024–65535), and an HTTPS provisioning URL."
+      "invalid_server": "Enter a reachable IPv4 address, three different ports (1024–65535), and an HTTPS provisioning URL.",
+      "network_required": "Choose a Wi-Fi network.",
+      "invalid_password": "Enter the 8–63 character Wi-Fi password.",
+      "no_networks": "The fan found no 2.4 GHz networks. Check that your router is nearby, then scan again.",
+      "wifi_failed": "The fan could not join Wi-Fi: {error}. Check that the network is 2.4 GHz and the password is correct.",
+      "provision_failed": "Setup failed: {error}"
     },
     "abort": {
-      "pairing_expired": "Setup expired. Choose Add fan to create a new link.",
+      "not_supported": "This Bluetooth device does not advertise like a Coway fan in setup mode.",
+      "hub_required": "Set up Coway Local first (Settings → Devices & services → Add integration → Coway Local), then add the fan again.",
+      "no_devices_found": "No Coway fan in Wi-Fi setup mode is visible to Home Assistant’s Bluetooth adapters or ESPHome proxies. Hold the fan’s **Mode** button to enter setup mode, wait a few seconds, then try again.",
+      "ble_not_found": "Home Assistant can no longer reach the fan over Bluetooth: {error} Make sure it is in setup mode and near a connectable adapter or an ESPHome proxy with `active: true`.",
+      "ble_not_coway": "This device is not a compatible Coway fan in setup mode: {error}",
+      "ble_connect_failed": "Bluetooth connection failed. {error}",
+      "ble_timeout": "{error} Put the fan back into setup mode and try again.",
+      "ble_disconnected": "{error}",
+      "ble_protocol": "The fan sent an unexpected Bluetooth response: {error}",
+      "wifi_failed": "The fan could not join Wi-Fi: {error}. Put it back into setup mode and try again.",
+      "provision_failed": "Setup failed: {error}. Put the fan back into setup mode and try again.",
+      "broker_unreachable": "{error}",
       "cannot_start_pairing": "Could not start setup. Check that the local service is running, Home Assistant has a frontend URL, and there are fewer than eight active setup attempts.",
+      "pairing_expired": "Setup expired. Choose Add fan to create a new link.",
       "pairing_interrupted": "Setup was canceled or the local service stopped. Choose Add fan to start again.",
       "fan_ready": "**Fan ready**\n\nYour fan is connected and ready to control in Home Assistant. You can close this dialog."
     },
     "progress": {
-      "verify_connection": "Your Wi-Fi settings have been sent. Home Assistant is waiting for the fan to connect and confirm its initial settings.\n\nThis can take another **2 minutes**. Keep the fan powered on and leave this dialog open. Setup will finish automatically."
+      "verify_connection": "Your Wi-Fi settings have been sent. Home Assistant is waiting for the fan to connect and confirm its initial settings.\n\nThis can take another **2 minutes**. Keep the fan powered on and leave this dialog open. Setup will finish automatically.",
+      "bluetooth_connect": "Connecting to **{name}** over Bluetooth and asking it to scan for Wi-Fi networks. This uses any nearby Bluetooth adapter or ESPHome Bluetooth proxy, and can take up to a minute.\n\nKeep the fan in Wi-Fi setup mode.",
+      "bluetooth_provision": "Sending Wi-Fi settings for **{network}** to {name}. The fan joins Wi-Fi, downloads its credentials from Home Assistant, and connects to the local broker.\n\nThis can take up to **2 minutes**. Keep the fan in Wi-Fi setup mode and leave this dialog open."
     }
   },
   "issues": {

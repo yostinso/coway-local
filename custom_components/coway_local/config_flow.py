@@ -1,6 +1,5 @@
-"""Server setup and temporary Bluetooth enrollment links."""
+"""Server setup, browser Bluetooth enrollment links and native Bluetooth setup."""
 
-import asyncio
 import secrets
 import time
 from dataclasses import asdict
@@ -9,10 +8,13 @@ from urllib.parse import urlencode
 import probatio as vol
 from homeassistant import config_entries
 from homeassistant.components import network
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import section
 from homeassistant.helpers.network import NoURLAvailableError
 
+from .ble_flow import ADDRESS, BluetoothProvisioningMixin, ble_client, bluetooth_available
+from .ble_protocol import advertised_product, display_name
 from .const import DEFAULT_PORTS, DOMAIN, PROVISIONER_URL
 from .provisioning import EXPIRES_KEY, RETURN_PATH, STATE_KEY, frontend_url
 from .service import ServerConfig
@@ -47,8 +49,41 @@ def flatten(user_input):
     return values
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ConfigFlow(BluetoothProvisioningMixin, config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    def _coway_service(self):
+        for entry in self._async_current_entries(include_ignore=False):
+            if entry.state is ConfigEntryState.LOADED:
+                return entry.runtime_data
+        return None
+
+    @callback
+    def async_remove(self):
+        self._ble_cleanup()
+
+    async def async_step_bluetooth(self, discovery_info):
+        """A fan in Wi-Fi setup mode, seen by a local adapter or an ESPHome proxy."""
+        if advertised_product(discovery_info.manufacturer_data) is None:
+            return self.async_abort(reason="not_supported")
+        await self.async_set_unique_id(discovery_info.address)
+        self._abort_if_unique_id_configured()
+        name = display_name(discovery_info.name, discovery_info.address)
+        self._ble_address, self._ble_name = discovery_info.address, name
+        self.context["title_placeholders"] = {"name": name or "Coway fan"}
+        return await self.async_step_bluetooth_confirm()
+
+    async def async_step_bluetooth_confirm(self, user_input=None):
+        if user_input is not None:
+            if self._coway_service() is None:
+                return self.async_abort(reason="hub_required")
+            self._ble_start(self._ble_address, self._ble_name)
+            return await self.async_step_bluetooth_connect()
+        self._set_confirm_only()
+        return self.async_show_form(
+            step_id="bluetooth_confirm",
+            description_placeholders={"name": self._ble_name or "Coway fan"},
+        )
 
     async def async_step_user(self, user_input=None):
         if self._async_current_entries():
@@ -80,21 +115,43 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return OptionsFlow()
 
 
-class OptionsFlow(config_entries.OptionsFlow):
+class OptionsFlow(BluetoothProvisioningMixin, config_entries.OptionsFlow):
     def __init__(self):
         self.pairing = None
         self.pairing_service = None
         self.setup_url = None
         self.verify_task = None
 
+    def _coway_service(self):
+        return self.config_entry.runtime_data
+
     @callback
     def async_remove(self):
         self.context.pop(STATE_KEY, None)
+        self._ble_cleanup()
         if self.pairing and self.pairing_service:
             self.pairing_service.cancel_pairing(self.pairing)
 
     async def async_step_init(self, user_input=None):
-        return self.async_show_menu(step_id="init", menu_options=["add_fan", "server"])
+        options = ["add_fan", "server"]
+        if bluetooth_available(self.hass):
+            options.insert(0, "add_fan_bluetooth")
+        return self.async_show_menu(step_id="init", menu_options=options)
+
+    async def async_step_add_fan_bluetooth(self, user_input=None):
+        """Provision through HA's Bluetooth adapters and ESPHome proxies; no browser."""
+        fans = ble_client().discovered_fans(self.hass)
+        if user_input is not None and user_input[ADDRESS] in fans:
+            address = user_input[ADDRESS]
+            self._ble_start(address, fans[address])
+            return await self.async_step_bluetooth_connect()
+        if not fans:
+            return self.async_abort(reason="no_devices_found")
+        choices = {address: f"{name or 'Coway fan'} ({address})" for address, name in fans.items()}
+        return self.async_show_form(
+            step_id="add_fan_bluetooth",
+            data_schema=vol.Schema({vol.Required(ADDRESS): vol.In(choices)}),
+        )
 
     async def async_step_add_fan(self, user_input=None):
         service = self.config_entry.runtime_data
@@ -120,36 +177,6 @@ class OptionsFlow(config_entries.OptionsFlow):
             step_id="pairing",
             url=self.setup_url,
         )
-
-    async def _wait_for_pairing(self):
-        try:
-            async with asyncio.timeout(max(0, self.pairing.expires - time.time())):
-                await self.pairing.finished.wait()
-        except TimeoutError:
-            self.pairing_service.cancel_pairing(self.pairing)
-
-    async def async_step_verify(self, user_input=None):
-        if self.verify_task is None:
-            if self.pairing.finished.is_set() or time.time() > self.pairing.expires:
-                return await self.async_step_finish()
-            self.verify_task = self.hass.async_create_background_task(
-                self._wait_for_pairing(), "Coway Local enrollment verification"
-            )
-        if self.verify_task.done():
-            return self.async_show_progress_done(next_step_id="finish")
-        return self.async_show_progress(
-            step_id="verify",
-            progress_action="verify_connection",
-            progress_task=self.verify_task,
-        )
-
-    async def async_step_finish(self, user_input=None):
-        if self.pairing.complete:
-            # Enrollment is already persisted by the service. End the flow without
-            # saving options, which would show HA's fixed "Options successfully saved".
-            return self.async_abort(reason="fan_ready")
-        reason = "pairing_expired" if time.time() >= self.pairing.expires else "pairing_interrupted"
-        return self.async_abort(reason=reason)
 
     async def async_step_server(self, user_input=None):
         defaults = self.config_entry.data | self.config_entry.options
